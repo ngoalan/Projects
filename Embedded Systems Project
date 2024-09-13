@@ -1,0 +1,534 @@
+#include <avr/io.h>
+#include <util/delay.h>
+#include "timer.h"
+
+// ****************************** Utility Functions ****************************** //
+// You don't need to use these
+// but they could help you in
+// writing less code.
+
+// Don't worry about how these work--just look below struct definitions to learn how to use them
+struct B {
+    bool operator()(int pad) { return PINB & (1 << pad); } 
+    void operator()(int pad, bool value) { 
+        PORTB = (value) ? PORTB | (1 << pad) : PORTB & ~(1 << pad);
+    }
+};
+
+struct C {
+    bool operator()(int pad) { return PINC & (1 << pad); } 
+    void operator()(int pad, bool value) {
+        PORTC = (value) ? PORTC | (1 << pad) : PORTC & ~(1 << pad);
+    }
+};
+
+struct D {
+    bool operator()(int pad) { return PIND & (1 << pad); } 
+    void operator()(int pad, bool value) { 
+        PORTD = (value) ? PORTD | (1 << pad) : PORTD & ~(1 << pad);
+    }
+};
+
+// get function: fetches values from pin registers
+// Sample Usage:
+// get<B>(7) -- gets the value at PINB7 (returns 1 or 0)
+// get<D>(5) -- gets the value at PIND5 (returns 1 or 0)
+template <typename Group>
+bool get(int pad) {
+    return Group()(pad);
+}
+
+// set function: sets value at port regsiter
+// Note: This function DOES NOT disturb the other bits in the register
+// Sample Usage:
+// set<C>(5, 0) -- sets PORTC5 to 0
+// set<B>(6, 1) -- sets PORTC6 to 1
+// set<D>(7, true) -- sets PORTD7 to 1
+template <typename Group>
+void set(int pad, bool value) {
+
+    Group()(pad, value);
+}
+// ******************************************************************************* //
+
+
+
+// 7segment display 0-9 (don't need A-F)
+unsigned char seg7[] = {
+//    gfedcba
+    // 0b0111111, // 0
+    // 0b0000110, // 1
+    // 0b1011011, // 2
+    // 0b1001111, // 3
+    // 0b1100110, // 4
+    // 0b1101101, // 5
+    // 0b1111101, // 6
+    // 0b0000111, // 7
+    // 0b1111111, // 8
+    // 0b1101111, // 9
+    0b01111110, // 0
+    0b00001100, // 1
+    0b10110110, // 2
+    0b10011110, // 3
+    0b11001100, // 4
+    0b11011010, // 5
+    0b11111010, // 6
+    0b00001110, // 7
+    0b11111110, // 8
+    0b11011110, // 9
+};
+// stepper motor phases
+unsigned char phases[] = {
+    0b0001, 
+    0b0011, 
+    0b0010, 
+    0b0110, 
+    0b0100, 
+    0b1100, 
+    0b1000, 
+    0b1001
+};
+
+/* GLOBAL VARIABLES */
+unsigned int gDistance  = 0/* your global distance variable */;
+unsigned int gThreshold = 5/* choose a threshold distance */;
+unsigned int LEDtimer = 0;
+unsigned int currentPhases=0;
+
+void map_distance_to_color(int dist) {
+}
+
+enum displayStates{ones,tens,hun}display;
+void tickFunc(){
+  switch(display){
+  case ones:
+    display = tens;
+    break;
+  case tens:
+    display = hun;
+    case hun:
+    display = ones;
+    break;
+  }
+  switch (display)
+  {
+    case ones:
+    PORTC = 0x30;
+    if ((gDistance %10)<= 0){
+      PORTD = seg7[0];
+    }
+    else if ((gDistance %10) <=1){
+      PORTD = seg7[1];
+    }
+    else if ((gDistance %10) <=2){
+      PORTD = seg7[2];
+    }
+    else if ((gDistance %10) <=3){
+      PORTD = seg7[3];
+    }
+    else if ((gDistance %10) <=4){
+      PORTD = seg7[4];
+    }
+    else if ((gDistance %10) <=5){
+      PORTD = seg7[5];
+    }
+    else if ((gDistance %10) <=6){
+      PORTD = seg7[6];
+    }
+    else if ((gDistance %10) <=7){
+      PORTD = seg7[7];
+    }
+    else if ((gDistance %10) <=8){
+      PORTD = seg7[8];
+    }
+    else if ((gDistance %10) <=9){
+      PORTD = seg7[9];
+    }
+    break;
+
+    case tens:
+    PORTC = 0x28;
+    if ((gDistance <=9)){
+      PORTD = seg7[0];
+    }
+    else if((gDistance%100) <=19){
+      PORTD = seg7[1];
+    }
+    else if((gDistance%100) <=29){
+      PORTD = seg7[2];
+    }
+    else if((gDistance%100) <=39){
+      PORTD = seg7[3];
+    }
+    else if((gDistance%100) <=49){
+      PORTD = seg7[4];
+    }
+    else if((gDistance%100) <=59){
+      PORTD = seg7[5];
+    }
+    else if((gDistance%100) <=69){
+      PORTD = seg7[6];
+    }
+    else if((gDistance%100) <=79){
+      PORTD = seg7[7];
+    }
+    else if((gDistance%100) <=89){
+      PORTD = seg7[8];
+    }
+    else if((gDistance%100) <=99){
+      PORTD = seg7[9];
+    }
+    break;
+
+    case hun:
+    PORTC = 0x18;
+    if(gDistance <=99){
+      PORTD = seg7[0];
+    }
+    else if((gDistance%1000) <=199){
+      PORTD = seg7[1];
+    }
+    else if((gDistance%1000) <=299){
+      PORTD = seg7[2];
+    }
+    else if((gDistance%1000) <=399){
+      PORTD = seg7[3];
+    }
+    else if((gDistance%1000) <=499){
+      PORTD = seg7[4];
+    }
+    else if((gDistance%1000) <=599){
+      PORTD = seg7[5];
+    }
+    else if((gDistance%1000) <=699){
+      PORTD = seg7[6];
+    }
+    else if((gDistance%1000) <=799){
+      PORTD = seg7[7];
+    }
+    else if((gDistance%1000) <=899){
+      PORTD = seg7[8];
+    }
+    else if((gDistance%1000) <=999){
+      PORTD = seg7[9];
+    }
+    break;
+  }
+}
+
+// enum RGBStates{yellow, green, red}RGBState;
+// void RGBTick(){
+//   switch(RGBState){
+//     case yellow:
+//     if(gDistance <= gThreshold){
+//       RGBState = red;
+//     }
+//     else{
+//       RGBState = yellow;
+//     }
+//     break;
+//     case red:
+//     if(gDistance <= gThreshold){
+//       RGBState = red;
+//     }
+//     else{
+//       RGBState = green;
+//     }
+//     break;
+//     case green:
+//     if(gDistance <= gThreshold){
+//       RGBState = red;
+//     }
+//     else{
+//       RGBState = green;
+//     }
+//     break;
+//   }
+//   switch(RGBState){
+//     case yellow:
+//     set<B>(4,1);
+//     set<B>(3,1);
+//     break;
+//     case red:
+//     set<B>(4,1);
+//     set<B>(3,0);
+//     break;
+//     case green:
+//     set<B>(4,0);
+//     set<B>(3,1);
+//     break;
+//   }
+// }
+enum RGBStates {green, yellow, red} RGBState;
+unsigned int counter = 0;
+
+void updateRGBState() {
+    if (gDistance > 15) {
+        RGBState = green;
+    } else if (gDistance < 7) {
+        RGBState = red;
+    } else {
+        RGBState = yellow;
+    }
+}
+
+void RGBTick() {
+    switch (RGBState) {
+        case green:
+            // Green on, Red off
+            set<B>(4, 0);  // Red off
+            set<B>(3, 1);  // Green on
+            break;
+
+        case yellow:
+            // Alternate 
+            if (counter % 2 == 0) {
+                set<B>(4, 1);  // Red on
+                set<B>(3, 0);  // Green off
+            } else {
+                set<B>(4, 0);  // Red off
+                set<B>(3, 1);  // Green on
+            }
+            counter++;
+            break;
+
+        case red:
+            // Red on, Green off
+            set<B>(4, 1);  // Red on
+            set<B>(3, 0);  // Green off
+            break;
+    }
+}
+
+
+enum LEDStates{LEDOn, LEDOff, LEDReset}LEDState;
+void LEDTick(){
+  switch(LEDState){
+    case LEDOn:
+    if(LEDtimer >= 50){
+      LEDState = LEDOff;
+      LEDtimer = 0;
+    }
+    else{
+      LEDState = LEDOn;
+    }
+    LEDtimer++;
+    break;
+    case LEDOff:
+    if(LEDtimer >= 500){
+      LEDState = LEDReset;
+    }
+    else{
+      LEDState = LEDOff;
+    }
+    LEDtimer++;
+    break;
+    case LEDReset:
+    LEDtimer = 0;
+    LEDState = LEDOn;
+    break;
+  }
+  switch(LEDState){
+    case LEDOn:
+    if(gDistance <= gThreshold){
+      set<B>(5,1);
+    }
+    else{
+      set<B>(5,0);
+    }
+    break;
+    case LEDOff:
+    set<B>(5,0);
+    break;
+  }
+}
+
+enum buzzerStates{buzzOn,buzzOff, reset}buzzer;
+void buzzerTick(){
+  static unsigned int timer = 0;
+  switch(buzzer){
+    case buzzOn:
+    if(timer >=20){
+      buzzer = buzzOff;
+      timer = 0;
+    }
+    else{
+      buzzer = buzzOn;
+    }
+    timer++;
+    break;
+    case buzzOff:
+    if (timer >=400){
+      buzzer = reset;
+    }
+    else{
+      buzzer = buzzOff;
+    }
+    //buzzer = (timer >=400) ? reset : buzzOff;
+    timer++;
+    break;
+    case reset:
+    timer = 0;
+    buzzer = buzzOn;
+    break;
+  }
+  switch (buzzer){
+  case buzzOn:
+  if(gDistance <= gThreshold){
+    set<C>(0,1);
+  }
+  else{
+    set<C>(0,0);  
+    }
+  break;
+  case buzzOff:
+  set<C>(0,0);
+  break;
+  }
+}
+
+/* PIN DECLARATIONS */
+// RGB LED Pins
+#define RED_PIN    PORTB4
+#define GREEN_PIN  PORTB3
+// Sonar Pins
+#define SONAR_TRIG  PORTC2
+#define SONAR_ECHO  PINC1
+
+const int min_dist = 5;
+const int max_dist = 30;
+const float duty_max = 15;
+const float duty_map = duty_max / (max_dist - min_dist);
+unsigned duty_green = 0;
+
+// pings the SONAR sensor and returns the distance in cm
+double read_sonar() {
+    int count = 0;
+
+    // generate 10us pulse
+    set<C>(SONAR_TRIG, 1);
+    _delay_us(10);
+    set<C>(SONAR_TRIG, 0);
+
+    // wait for the echo line to rise
+    while (!get<C>(SONAR_ECHO));
+    // wait for the echo line to drop then count us
+    while (get<C>(SONAR_ECHO)) {
+        count++;
+        _delay_us(1);
+    }
+    // use speed of sound to determine distance
+    return (0.034 / 2) * count;
+}
+
+// given some 8-bit data: dat, load it into the 8-bit shift register
+// TODO! Translate each comment into code
+void tx_shift(unsigned char dat) {
+          set<B> (1,0);
+    // reset RCLK line
+    for (int i = 7; i >= 0; --i) { // for each bit in dat
+    set<B>(2,0);
+        // reset SRCLK line        // extract i'th bit from dat and assign to SER line
+        set<B>(0, ((dat >> i) & 0x01));
+        // _delay_us(10); // wait 10us---you're welcome to add a slight delay, although I didn't need it
+        // set SRCLK line
+        set<B>(2,1);
+    }
+    // set RCLK line
+    set<B>(1,1);
+}
+
+// enum StepperStates {SHIFT, RESET} stepperState;
+// int i = 7;  // Start at the last phase
+// void stepperTick() {
+//     switch (stepperState) {
+//         case SHIFT:
+//             tx_shift(phases[i]);  // Send the current phase to the shift register
+//             if (i > 0) {
+//                 i--;  // Decrement i
+//             } else {
+//                 stepperState = RESET;  // Move to RESET state when i reaches 0
+//             }
+//             break;
+//         case RESET:
+//             i = 7;  // Reset to the last phase
+//             stepperState = SHIFT;  // Return to SHIFT state
+//             break;
+//     }
+// }
+enum StepperStates {LEFT, RIGHT , RESET} stepperState;
+void stepperTick(){
+    switch (stepperState) {
+        case LEFT:
+            if(gDistance >= gThreshold){
+            stepperState = RIGHT;
+            }
+            else{
+            stepperState = LEFT;
+            }
+            break;
+        case RIGHT:
+            if(gDistance >= gThreshold){
+            stepperState = RIGHT;
+            }
+            else{
+            stepperState = LEFT;
+            }
+            break;
+        default: stepperState = RIGHT; break;
+        }
+
+    switch (stepperState){
+        static unsigned int i=0;
+        static int j = 7;
+        case LEFT:
+            tx_shift(phases[i]);
+            i++;
+
+            if(i>7){
+                i=0;
+            }
+            break;
+        case RIGHT:
+            tx_shift(phases[j]);
+            j--;
+
+            if(j<=0){
+                j=7;
+            }
+            break;
+        default: break;
+    }
+}
+
+
+
+
+
+int main() {
+
+    DDRB = 0xFF;
+    DDRC = 0xFD;
+    DDRD = 0xFF;
+    TimerSet(1);
+    TimerOn();
+
+    int counter = 0;
+    while (1) {
+        //your tick function calls go here
+        if(counter++ >75){
+            gDistance = read_sonar();
+            counter = 0;
+        } 
+        stepperTick();
+        updateRGBState();
+        RGBTick();
+        LEDTick();
+        tickFunc();
+        buzzerTick();
+        while (!TimerFlag);
+        TimerFlag = false;
+    }
+
+    return 0;
+}
